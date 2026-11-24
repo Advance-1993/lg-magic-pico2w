@@ -1,0 +1,30 @@
+name: Source and release checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install Python dependencies and Tk
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk
+          python -m pip install -r requirements.txt
+      - name: Fetch pinned SDK structs for native tests
+        run: |
+          git clone --branch 2.2.0 --depth 1 https://github.com/raspberrypi/pico-sdk.git "$RUNNER_TEMP/pico-sdk"
+          git -C "$RUNNER_TEMP/pico-sdk" submodule update --init --depth 1 lib/btstack
+          echo "PICO_SDK_PATH=$RUNNER_TEMP/pico-sdk" >> "$GITHUB_ENV"
+      - name: Python unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Production-code native tests
+        run: python tools/run_native_tests.py
+      - name: Verify images and sanitized publication
+        run: |
+          python tools/verify_artifacts.py
+          python tools/check_public.py
