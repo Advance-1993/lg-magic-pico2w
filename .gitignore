@@ -1,0 +1,32 @@
+# Private local state / secrets
+backups/
+logs/
+_runtime/
+companion-labels.json
+*labels*.json
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*
+# Development outputs
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+work/
+tools/pico-sdk/
+tools/picotool/
+*.elf
+*.bin
+*.hex
+*.map
+*.zip
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
