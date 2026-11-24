@@ -1,0 +1,18 @@
+Licensing overview
+==================
+
+This is a mixed-license derivative, not a blanket MIT-licensed firmware project.
+The complete inherited bridge terms are retained in firmware/LICENSE.TXT and
+source headers. Dependency notices are retained in LICENSES/.
+
+Original project additions (desktop Python tools, project-specific firmware
+additions, tests and new documentation), excluding copied/derived third-party
+portions, are available under the MIT terms in LICENSES/project-additions-MIT.txt.
+This does not relicense any upstream work or override its restrictions.
+
+The BlueKitchen source headers include a personal/non-commercial condition.
+The Raspberry Pi supplemental license covers the listed Raspberry Pi products.
+Do not assume this repository grants commercial rights or use on arbitrary boards.
+Review the exact applicable texts before redistributing or changing hardware.
+
+See THIRD_PARTY_NOTICES.md for provenance and component-specific information.

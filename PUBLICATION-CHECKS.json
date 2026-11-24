@@ -1,0 +1,31 @@
+{
+  "prepared_date": "2026-11-24",
+  "version": "0.25",
+  "privacy": "Allowlisted source/docs/tests, synthetic fixtures, application-only path-mapped firmware; no private histories or provisioned data",
+  "local_checks": {
+    "hid_build": "passed",
+    "diagnostic_build": "passed",
+    "native_suites": 7,
+    "python_tests": 41,
+    "board_flash_during_export": false,
+    "github_cloud_workflow": "prepared, not yet run",
+    "privacy_scan": "passed; text and reconstructed UF2 payloads",
+    "privacy_negative_controls": "passed: user path, device address and private-key marker",
+    "operator_specific_external_audit": "passed; original values excluded from report",
+    "local_document_links": "passed",
+    "firmware_hashes": "verified",
+    "desktop_copy_python_tests": 41,
+    "build_wrapper": "passed on HID, CPU flags preserved"
+  },
+  "hardware_scope": "Core0.25 tested on Pico2W/MR25GA; exact public rebuild bytes not hardware-flashed",
+  "excluded": [
+    "private logs",
+    "full-flash backups",
+    "runtime/labels",
+    "host TV/AHK setup",
+    "nested git histories",
+    "SDK/toolchains",
+    "ELF/debug files",
+    "local build caches"
+  ]
+}

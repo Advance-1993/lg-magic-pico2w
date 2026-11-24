@@ -1,0 +1,171 @@
+--- btstack/src/ble/gatt-service/hids_client.c
++++ firmware/src/hids_client_cached.c
+@@ -35,7 +35,14 @@
+  *
+  */
+ 
+-#define BTSTACK_FILE__ "hids_client.c"
++#define BTSTACK_FILE__ "hids_client_cached.c"
++// Project-local SDK2.2.0 copy. See HIDS-CACHE-SOURCE.md for upstream hash/diff.
++#include "hids_cache_api.h"
++#include "diagnostic.h"
++static uint16_t lg_cached_cid, lg_bad_subscription_cid;
++static bool lg_fail_next,lg_cache_permitted;
++static uint16_t lg_discovered_ccc[15],lg_cached_ccc[15];
++static uint8_t lg_notify_on[2]={1,0};
+ 
+ #include "btstack_config.h"
+ 
+@@ -502,6 +509,7 @@
+ }
+ 
+ static void hids_finalize_client(hids_client_t * client){
++    if (lg_cached_cid==client->cid) lg_cached_cid=0;
+     // stop listening
+     uint8_t i;
+     for (i = 0; i < client->num_reports; i++){
+@@ -837,13 +845,27 @@
+             characteristic.properties = client->reports[client->report_index].properties;
+             
+             // end of write marked in GATT_EVENT_QUERY_COMPLETE
+-            att_status = gatt_client_write_client_characteristic_configuration(&handle_gatt_client_event, client->con_handle, &characteristic, GATT_CLIENT_CHARACTERISTICS_CONFIGURATION_NOTIFICATION);
++            if (lg_cached_cid==client->cid && !lg_cache_permitted) {
++                hids_emit_connection_established(client, ERROR_CODE_COMMAND_DISALLOWED);
++                hids_finalize_client(client);return;
++            }
++            if (lg_cached_cid==client->cid) {
++                att_status=gatt_client_write_value_of_characteristic(handle_gatt_client_event,client->con_handle,
++                    lg_cached_ccc[client->report_index],sizeof(lg_notify_on),lg_notify_on);
++            } else {
++                att_status = gatt_client_write_client_characteristic_configuration(&handle_gatt_client_event, client->con_handle, &characteristic, GATT_CLIENT_CHARACTERISTICS_CONFIGURATION_NOTIFICATION);
++            }
+             
+             if (att_status == ERROR_CODE_SUCCESS){
+                 gatt_client_listen_for_characteristic_value_updates(
+                     &client->reports[client->report_index].notification_listener, 
+                     &handle_notification_event, client->con_handle, &characteristic);
+             } else {
++                lg_bad_subscription_cid=client->cid;
++                if (lg_cached_cid==client->cid) {
++                    hids_emit_connection_established(client, att_status);
++                    hids_finalize_client(client); return;
++                }
+                 if (hids_client_report_next_notification_report_index(client)){
+                     hids_run_for_client(client);
+                     break;
+@@ -1128,6 +1150,9 @@
+                     }
+                     break;
+                 case HIDS_CLIENT_STATE_W4_REPORT_FOUND:
++                    // Keep only discovered CCC handles; never guess descriptor locations.
++                    if (characteristic_descriptor.uuid16==ORG_BLUETOOTH_DESCRIPTOR_GATT_CLIENT_CHARACTERISTIC_CONFIGURATION && client->report_index<HIDS_CLIENT_NUM_REPORTS)
++                        lg_discovered_ccc[client->report_index]=characteristic_descriptor.handle;
+                     // setup for descriptor value query
+                     if (characteristic_descriptor.uuid16 == ORG_BLUETOOTH_DESCRIPTOR_REPORT_REFERENCE){
+                         client->handle = characteristic_descriptor.handle;
+@@ -1369,6 +1394,14 @@
+                     break;
+ 
+                 case HIDS_CLIENT_STATE_W4_INPUT_REPORTS_ENABLED:
++                    if (status!=ERROR_CODE_SUCCESS || (lg_cached_cid==client->cid && (lg_fail_next || !lg_cache_permitted))) {
++                        lg_bad_subscription_cid=client->cid;
++                        if (lg_cached_cid==client->cid) {
++                            lg_fail_next=false;
++                            hids_emit_connection_established(client, status ? status : ERROR_CODE_UNSPECIFIED_ERROR);
++                            hids_finalize_client(client); return;
++                        }
++                    }
+                     if (hids_client_report_next_notification_report_index(client)){
+                         break;
+                     }
+@@ -1464,6 +1497,7 @@
+         return BTSTACK_MEMORY_ALLOC_FAILED;
+     }
+ 
++    lg_bad_subscription_cid=0;memset(lg_discovered_ccc,0,sizeof(lg_discovered_ccc));
+     client->required_protocol_mode = protocol_mode;
+     client->client_handler = packet_handler; 
+     client->state = HIDS_CLIENT_STATE_W2_QUERY_SERVICE;
+@@ -1690,3 +1724,82 @@
+ }
+ 
+ void hids_client_deinit(void){}
++
++// One RAM snapshot, deliberately no flash cache or live listener/callback pointers.
++static struct {
++    bool valid;
++    hid_service_t service;
++    hids_client_report_t reports[HIDS_CLIENT_NUM_REPORTS];
++    uint8_t count;
++    uint8_t descriptor[2048];
++    uint16_t length;
++} lg_cache;
++
++void lg_hids_cache_clear(void) { lg_cache.valid=false;lg_cache_permitted=false; }
++bool lg_hids_cache_valid(void) { return lg_cache.valid; }
++void lg_hids_cache_fail_next(void) { lg_fail_next=true; }
++bool lg_hids_cache_capture(uint16_t cid) {
++    lg_hids_cache_clear();
++    hids_client_t *c=hids_get_client_for_cid(cid);
++    if (c) {
++        diag_log("HID_CACHE_SNAPSHOT cid=%u state=%u services=%u reports=%u external=%u mode=%u bad_cid=%u desc=%u status=%u range=%04X-%04X\n",
++            cid,c->state,c->num_instances,c->num_reports,c->num_external_reports,c->required_protocol_mode,lg_bad_subscription_cid,
++            c->services[0].hid_descriptor_len,c->services[0].hid_descriptor_status,c->services[0].start_handle,c->services[0].end_handle);
++        for (unsigned i=0;i<c->num_reports && i<HIDS_CLIENT_NUM_REPORTS;++i)
++            diag_log("HID_CACHE_REPORT i=%u id=%02X type=%u boot=%u svc=%u value=%04X end=%04X props=%04X ccc=%04X\n",i,
++                c->reports[i].report_id,c->reports[i].report_type,c->reports[i].boot_report,c->reports[i].service_index,
++                c->reports[i].value_handle,c->reports[i].end_handle,c->reports[i].properties,lg_discovered_ccc[i]);
++    }
++    if (!c || c->state!=HIDS_CLIENT_STATE_CONNECTED || c->num_instances!=1 ||
++        !c->num_reports || c->num_reports>HIDS_CLIENT_NUM_REPORTS ||
++        c->required_protocol_mode!=HID_PROTOCOL_MODE_REPORT ||
++        lg_bad_subscription_cid==cid) return false;
++    hid_service_t *service=&c->services[0];
++    if (!service->hid_descriptor_len || service->hid_descriptor_len>sizeof(lg_cache.descriptor) ||
++        service->hid_descriptor_offset>hids_client_descriptor_storage_len ||
++        service->hid_descriptor_len>hids_client_descriptor_storage_len-service->hid_descriptor_offset ||
++        service->hid_descriptor_status || service->protocol_mode!=HID_PROTOCOL_MODE_REPORT ||
++        service->start_handle==0 || service->start_handle>service->end_handle) return false;
++    bool fd_input=false;
++    for (unsigned i=0;i<c->num_reports;++i) {
++        hids_client_report_t *r=&c->reports[i];
++        if (r->service_index || r->value_handle<service->start_handle ||
++            r->end_handle>service->end_handle || r->value_handle>r->end_handle ||
++            r->report_type==HID_REPORT_TYPE_RESERVED || r->report_type>HID_REPORT_TYPE_FEATURE) return false;
++        if (!r->boot_report && r->report_type==HID_REPORT_TYPE_INPUT &&
++            (!(r->properties&ATT_PROPERTY_NOTIFY) || !lg_discovered_ccc[i] || lg_discovered_ccc[i]<=r->value_handle || lg_discovered_ccc[i]>r->end_handle)) return false;
++        if (r->report_id==0xFD && r->report_type==HID_REPORT_TYPE_INPUT &&
++            !r->boot_report && (r->properties&ATT_PROPERTY_NOTIFY)) fd_input=true;
++    }
++    if (!fd_input) return false;
++    lg_cache.service=*service;lg_cache.count=c->num_reports;lg_cache.length=service->hid_descriptor_len;
++    memcpy(lg_cache.descriptor,hids_client_descriptor_storage_get_descriptor_data(cid,0),lg_cache.length);
++    for (unsigned i=0;i<c->num_reports;++i) {
++        lg_cache.reports[i]=c->reports[i];
++        memset(&lg_cache.reports[i].notification_listener,0,sizeof(gatt_client_notification_t));
++    }
++    memcpy(lg_cached_ccc,lg_discovered_ccc,sizeof(lg_cached_ccc));
++    lg_cache.valid=true;lg_cache_permitted=true;return true;
++}
++uint8_t lg_hids_connect_cached(hci_con_handle_t handle,btstack_packet_handler_t callback,uint16_t *cid) {
++    if (!lg_cache.valid || clients!=NULL || hids_client_descriptor_storage_len<lg_cache.length)
++        return ERROR_CODE_COMMAND_DISALLOWED;
++    uint16_t next=hids_get_next_cid();
++    hids_client_t *c=hids_create_client(handle,next);
++    if (!c) return BTSTACK_MEMORY_ALLOC_FAILED;
++    if (cid) *cid=next;
++    c->required_protocol_mode=HID_PROTOCOL_MODE_REPORT;c->client_handler=callback;
++    c->num_instances=1;c->services[0]=lg_cache.service;
++    c->services[0].hid_descriptor_offset=0;c->services[0].hid_descriptor_max_len=hids_client_descriptor_storage_len;
++    memcpy(hids_client_descriptor_storage,lg_cache.descriptor,lg_cache.length);
++    c->num_reports=lg_cache.count;
++    for (unsigned i=0;i<lg_cache.count;++i) {
++        c->reports[i]=lg_cache.reports[i];
++        memset(&c->reports[i].notification_listener,0,sizeof(gatt_client_notification_t));
++    }
++    lg_bad_subscription_cid=0;lg_cached_cid=next;
++    if (!hids_client_report_notifications_init(c)) {
++        hids_finalize_client(c);return ERROR_CODE_UNSUPPORTED_FEATURE_OR_PARAMETER_VALUE;
++    }
++    hids_run_for_client(c);return ERROR_CODE_SUCCESS;
++}

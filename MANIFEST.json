@@ -1,0 +1,27 @@
+{
+  "version": "0.25",
+  "board": "pico2_w / RP2350",
+  "artifacts": [
+    {
+      "file": "mr25ga-pico2w-airmouse-v0.25.uf2",
+      "sha256": "054f797b08a718005d40ff3524790cda93a3b9390e0108704d823f6024011c74",
+      "pid": "CAFE:4005",
+      "interfaces": 3,
+      "uf2_families": {
+        "E48BFF57": 1,
+        "E48BFF59": 1918
+      }
+    },
+    {
+      "file": "lg-magic-pico2w-diagnostic-v0.25.uf2",
+      "sha256": "7557f436844450730ae2fe02e4c8d3453fb6157aa87b479b8839e2833a361d9d",
+      "pid": "CAFE:4001",
+      "interfaces": 2,
+      "uf2_families": {
+        "E48BFF57": 1,
+        "E48BFF59": 1872
+      }
+    }
+  ],
+  "scope": "Clean application builds, no provisioned flash or private configuration"
+}
